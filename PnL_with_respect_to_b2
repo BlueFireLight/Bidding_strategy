@@ -1,0 +1,144 @@
+# Overview
+This tool models and visualizes the **expected Profit & Loss (PnL)** of a two-bid auction strategy as a function of the global market mean second bid (`avg_b2`). It captures how competitive market conditions affect your returns across a range of reserve price scenarios.
+
+The underlying asset has a fixed intrinsic value of **920**.
+
+---
+
+## Auction Mechanics
+
+The model evaluates three distinct cases for each reserve price scenario:
+
+### Case 0 — Secondary Bid Trigger (`b1 < reserve`)
+Primary bid fails to meet the reserve. A win is still possible if the secondary bid clears both the reserve price and the market mean.
+```
+PnL = 920 - b2
+```
+
+### Case 1a — Penalized Win (`b1 ≥ reserve`, `b2 < avg_b2`)
+Primary bid clears the reserve, but the secondary bid falls below the market mean — signaling weak market positioning. A cubic penalty and a 10% trade probability are applied.
+```
+PnL = (920 - b2) × ((920 - avg_b2) / (920 - b2))³ × 0.10
+```
+
+### Case 1b — Standard First-Price Win (`b1 ≥ reserve`, `b2 ≥ avg_b2`)
+Clean winning case. You pay the primary bid.
+```
+PnL = 920 - b1
+```
+
+---
+
+## Reserve Price Averaging
+Expected PnL at each `avg_b2` value is averaged across **49 uniformly distributed reserve prices** (675 to 915, step 5), capturing uncertainty about where the auction floor will land.
+
+---
+
+## Key Insight
+The chart reveals a sharp discontinuity at `avg_b2 = b2`:
+- **Left of threshold** — stable, high PnL (flat region)
+- **At threshold** — abrupt collapse as all winning scenarios flip simultaneously
+- **Right of threshold** — near-zero PnL driven only by the penalized case
+
+This cliff exists because `avg_b2` is on the X-axis — when it crosses `b2`, every reserve price scenario transitions at the same point, making the drop instantaneous rather than gradual.
+
+---
+
+## Usage
+```bash
+python pnl_plotter.py
+```
+Enter your first bid (`b1`) and second bid (`b2`) when prompted. The tool plots expected PnL across the full `avg_b2` range with a red dashed line marking the critical threshold.
+
+---
+
+## Dependencies
+- `matplotlib`
+- `math`
+
+---
+
+## Parameters
+
+| Parameter | Description |
+|---|---|
+| `b1` | Primary bid |
+| `b2` | Secondary bid |
+| `avg_b2` | Global market mean second bid (swept on X-axis) |
+| Reserve range | 675 to 915, step 5 (49 scenarios) |
+| Intrinsic value | 920 |
+
+
+
+import math
+import matplotlib.pyplot as plt
+
+def calculate_expected_pnl_for_mean(b1, b2, avg_b2):
+    """
+    Calculates the expected PnL for a specific set of bids and a given mean_b2,
+    averaging across 49 uniformly distributed reserve prices (675 to 915).
+    """
+    reserves = list(range(675, 916, 5))
+    total_pnl = 0
+
+    for r in reserves:
+        current_pnl = 0
+
+        # Case 0: second bid trigger mechanism
+        if b1 < r:
+            if b2 > r and b2 > avg_b2:
+                current_pnl = 920 - b2
+        
+        # Case 1: Both bids meet or exceed reserve
+        elif b1 >= r:
+            if b2 < avg_b2:
+                # Penalized Case: b2 < mean
+                denominator = 920 - b2
+                if denominator == 0:
+                    penalty_multiplier = 0
+                else:
+                    penalty_multiplier = math.pow((920 - avg_b2) / denominator, 3)
+
+                # Expected PnL = Price * Penalty * Probability of Trade (10%)
+                current_pnl = (920-b2) * penalty_multiplier * 0.10
+            else:
+                # Standard first-Price Case: b2 & b1 >= reserve
+                current_pnl = 920 - b1
+
+        total_pnl += current_pnl
+
+    return total_pnl / len(reserves)
+
+def plot_pnl_vs_meanbid2():
+    print("--- PnL vs Mean Bid 2 Plotter ---")
+    try:
+        b1 = float(input("Enter the first bid: "))
+        b2 = float(input("Enter the second bid: "))
+    except ValueError:
+        print("Invalid input. Please enter numeric values.")
+        return
+
+    # Generate a range of mean_bid2 values to test (e.g., from 700 to 920)
+    mean_b2_values = list(range(700, 920, 2))
+
+    # Calculate the Expected PnL for each mean_bid2
+    pnl_values = [calculate_expected_pnl_for_mean(b1, b2, m) for m in mean_b2_values]
+
+    # Plot the results
+    plt.figure(figsize=(10, 6))
+    plt.plot(mean_b2_values, pnl_values, color='blue', linewidth=2)
+
+    plt.title(f"Expected PnL vs Global Mean Second Bid\n(b1={b1}, b2={b2})", fontsize=14)
+    plt.xlabel("Global Mean Second Bid (avg_b2)", fontsize=12)
+    plt.ylabel("Expected PnL", fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    # Highlight the point where mean_b2 crosses the actual b2
+    plt.axvline(x=b2, color='red', linestyle='--', label=f"b2 threshold ({b2})")
+    plt.legend()
+
+    # Show the plot
+    plt.show()
+
+if __name__ == "__main__":
+    plot_pnl_vs_meanbid2()
